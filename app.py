@@ -26,5 +26,64 @@ st.write("Upload PDF and have a conversation!")
 
 apiKey = st.text_input("Enter Your Groq API Key: ", type = "password")
 if apiKey:
-    llm = ChatGroq(groq_api_key = apiKey, model_name = "Gemma2-9b-It")
-    
+    llm = ChatGroq(groq_api_key = apiKey, model_name="Gemma2-9b-It")
+    sessionId = st.text_input("Session ID", value="default")
+    if 'store' not in st.session_state:
+        st.session_state.sotre = {}
+
+    uploadFiles = st.file_uploader("Chose A PDF File: ", type="pdf", accept_multiple_files=False)
+    if uploadFiles:
+        documents = []
+        tempPDF = "./temp.pdf"
+        with open(tempPDF, "wb") as file:
+            file.write(uploadFiles.getvalue())
+            fileName = uploadFiles.name
+
+        loader = PyPDFLoader(tempPDF)
+        docs = loader.load()
+        documents.extend(docs)
+
+        textSplitter = RecursiveCharacterTextSplitter(chunk_size=5000, chunk_overlap=500)
+        splits = textSplitter.split_documents(documents)
+        vectorStore = Chroma.from_documents(documents=splits, embedding=embeddings)
+        retriever = vectorStore.as_retriever()
+
+        contextualizeQuestionSystemPrompt = (
+            "Given a chat history and the latest user question"
+            "which might reference context in the chat history, "
+            "formulate a standalone question which can be understood "
+            "without the chat history. Do NOT answer the question, "
+            "just reformulate it if needed and otherwise return it as is."
+        )
+
+        contextualizeQuestionPrompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", contextualizeQuestionSystemPrompt),
+                MessagesPlaceholder("chat_history"),
+                ("human", "{input}"),
+            ]
+        )
+
+        historyAwareRetriever = create_history_aware_retriever(llm, retriever, contextualizeQuestionPrompt)
+
+        # Answer question
+        system_prompt = (
+            "You are an assistant for question-answering tasks. "
+            "Use the following pieces of retrieved context to answer "
+            "the question. If you don't know the answer, say that you "
+            "don't know. Use three sentences maximum and keep the "
+            "answer concise."
+            "\n\n"
+            "{context}"
+        )
+
+        questionPrompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", system_prompt),
+                MessagesPlaceholder("chat_history"),
+                ("human", "{input}"),
+            ]
+        )
+
+        questionAnswerChain = create_stuff_documents_chain(llm, questionPrompt)
+        rag_chain = create_retrieval_chain(historyAwareRetriever, questionAnswerChain)
