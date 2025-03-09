@@ -1,5 +1,4 @@
 python-dotenv
-ipykernel
 pypdf
 pymupdf
 bs4
@@ -18,3 +17,6 @@ duckdb
 pandas
 openai
 langchain-groq
+streamlit
+tiktoken
+watchdog
